@@ -19,7 +19,6 @@ DOMAIN = env("DOMAIN")
 with open("VERSION", encoding="utf-8") as f:
     version = f.read()
     version = version.replace("\n", "")
-f.close()
 
 VERSION = version
 
@@ -108,6 +107,7 @@ INSTALLED_APPS = [
     "celery",
     "django_celery_beat",
     "imagekit",
+    "pgtrigger",
     "storages",
 ]
 
@@ -446,4 +446,6 @@ if HTTP_X_FORWARDED_PROTO:
 # user with the same username - in which case you should change it!
 INSTANCE_ACTOR_USERNAME = "bookwyrm.instance.actor"
 
-DATA_UPLOAD_MAX_MEMORY_SIZE = env.int("DATA_UPLOAD_MAX_MEMORY_SIZE", (1024**2 * 100))
+# We only allow specifying DATA_UPLOAD_MAX_MEMORY_SIZE in MiB from .env
+# (note the difference in variable names).
+DATA_UPLOAD_MAX_MEMORY_SIZE = env.int("DATA_UPLOAD_MAX_MEMORY_MiB", 100) << 20
