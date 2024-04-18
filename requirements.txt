@@ -1,4 +1,4 @@
-aiohttp==3.9.2
+aiohttp==3.9.4
 bleach==5.0.1
 boto3==1.26.57
 bw-file-resubmit==0.6.0rc2
@@ -41,7 +41,7 @@ setuptools>=65.5.1 # Not a direct dependency, pinned to get a security fix
 tornado==6.3.3 # Not a direct dependency, pinned to get a security fix
 
 # Dev
-black==22.*
+black==24.*
 celery-types==0.18.0
 django-stubs[compatible-mypy]==4.2.4
 mypy==1.5.1
