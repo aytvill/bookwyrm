@@ -1,4 +1,5 @@
-""" bookwyrm settings and configuration """
+"""bookwyrm settings and configuration"""
+
 import os
 from typing import AnyStr
 
@@ -81,12 +82,14 @@ FONT_DIR = os.path.join(STATIC_ROOT, "fonts")
 # See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env.bool("DEBUG", True)
-USE_HTTPS = env.bool("USE_HTTPS", not DEBUG)
+DEBUG = env.bool("DEBUG", False)
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = env("SECRET_KEY")
-if not DEBUG and SECRET_KEY == "7(2w1sedok=aznpq)ta1mc4i%4h=xx@hxwx*o57ctsuml0x%fr":
+SECRET_KEY = env("SECRET_KEY", None)
+if not DEBUG and SECRET_KEY in [
+    None,
+    "7(2w1sedok=aznpq)ta1mc4i%4h=xx@hxwx*o57ctsuml0x%fr",
+]:
     raise ImproperlyConfigured("You must change the SECRET_KEY env variable")
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", ["*"])
@@ -274,7 +277,7 @@ else:
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "ENGINE": "django.db.backends.postgresql",
         "NAME": env("POSTGRES_DB", "bookwyrm"),
         "USER": env("POSTGRES_USER", "bookwyrm"),
         "PASSWORD": env("POSTGRES_PASSWORD", "bookwyrm"),
@@ -353,18 +356,23 @@ IMAGEKIT_DEFAULT_CACHEFILE_STRATEGY = "bookwyrm.thumbnail_generation.Strategy"
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 CSP_ADDITIONAL_HOSTS = env.list("CSP_ADDITIONAL_HOSTS", [])
+PORT = env.int("PORT", 80)
 
-PROTOCOL = "http"
-if USE_HTTPS:
+if DOMAIN == "localhost":
+    # only run insecurely when testing on localhost
+    PROTOCOL = "http"
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    NETLOC = f"{DOMAIN}:{PORT}"
+else:
+    # if we are not running on localhost, everything should be using https
+    # PORT should only be used to pass traffic to a reverse-proxy, not exposed externally
+    # so we don't need it here
     PROTOCOL = "https"
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-
-PORT = env.int("PORT", 443 if USE_HTTPS else 80)
-if (USE_HTTPS and PORT == 443) or (not USE_HTTPS and PORT == 80):
     NETLOC = DOMAIN
-else:
-    NETLOC = f"{DOMAIN}:{PORT}"
+
 BASE_URL = f"{PROTOCOL}://{NETLOC}"
 CSRF_TRUSTED_ORIGINS = [BASE_URL]
 
@@ -404,10 +412,17 @@ if USE_S3:
                 "default_acl": "public-read",
             },
         },
+        "sass_processor": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "location": "static",
+                "default_acl": "public-read",
+            },
+        },
         "exports": {
             "BACKEND": "storages.backends.s3.S3Storage",
             "OPTIONS": {
-                "location": "images",
+                "location": "exports",
                 "default_acl": None,
                 "file_overwrite": False,
             },
