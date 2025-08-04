@@ -1,6 +1,5 @@
 aiohttp==3.12.14
 bleach==6.1.0
-boto3==1.26.57
 bw-file-resubmit==0.6.0rc2
 celery==5.3.1
 colorthief==0.2.1
