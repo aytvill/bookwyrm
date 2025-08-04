@@ -11,25 +11,27 @@ from django.test.client import RequestFactory
 from bookwyrm import models, views
 from bookwyrm.tests.validate_html import validate_html
 
-
+# pylint: disable=too-many-public-methods
 @patch("bookwyrm.models.activitypub_mixin.broadcast_task.apply_async")
 class GroupViews(TestCase):
     """view group and edit details"""
 
     @classmethod
-    def setUpTestData(self):  # pylint: disable=bad-classmethod-argument
+    def setUpTestData(cls):
         """we need basic test data and mocks"""
-        with patch("bookwyrm.suggested_users.rerank_suggestions_task.delay"), patch(
-            "bookwyrm.activitystreams.populate_stream_task.delay"
-        ), patch("bookwyrm.lists_stream.populate_lists_task.delay"):
-            self.local_user = models.User.objects.create_user(
+        with (
+            patch("bookwyrm.suggested_users.rerank_suggestions_task.delay"),
+            patch("bookwyrm.activitystreams.populate_stream_task.delay"),
+            patch("bookwyrm.lists_stream.populate_lists_task.delay"),
+        ):
+            cls.local_user = models.User.objects.create_user(
                 "mouse@local.com",
                 "mouse@mouse.mouse",
                 "password",
                 local=True,
                 localname="mouse",
             )
-            self.rat = models.User.objects.create_user(
+            cls.rat = models.User.objects.create_user(
                 "rat@local.com",
                 "rat@rat.rat",
                 "password",
@@ -37,14 +39,14 @@ class GroupViews(TestCase):
                 localname="rat",
             )
 
-        self.testgroup = models.Group.objects.create(
+        cls.testgroup = models.Group.objects.create(
             name="Test Group",
             description="Initial description",
-            user=self.local_user,
+            user=cls.local_user,
             privacy="public",
         )
-        self.membership = models.GroupMember.objects.create(
-            group=self.testgroup, user=self.local_user
+        cls.membership = models.GroupMember.objects.create(
+            group=cls.testgroup, user=cls.local_user
         )
         models.SiteSettings.objects.create()
 
@@ -80,6 +82,16 @@ class GroupViews(TestCase):
         view = views.UserGroups.as_view()
         request = self.factory.get("")
         request.user = self.local_user
+        result = view(request, username="mouse@local.com")
+        self.assertIsInstance(result, TemplateResponse)
+        validate_html(result.render())
+        self.assertEqual(result.status_code, 200)
+
+    def test_usergroups_get_anonymous(self, _):
+        """there are so many views, this just makes sure it LOADS"""
+        view = views.UserGroups.as_view()
+        request = self.factory.get("")
+        request.user = self.anonymous_user
         result = view(request, username="mouse@local.com")
         self.assertIsInstance(result, TemplateResponse)
         validate_html(result.render())
