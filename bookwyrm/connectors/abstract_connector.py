@@ -3,10 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional, TypedDict, Any, Callable, Union, Iterator
 from urllib.parse import quote_plus
-import imghdr
+
 import logging
 import re
 import asyncio
+from PIL import Image, UnidentifiedImageError
 import requests
 from requests.exceptions import RequestException
 import aiohttp
@@ -84,7 +85,7 @@ class AbstractMinimalConnector(ABC):
             ),
             "User-Agent": USER_AGENT,
         }
-        params = {"min_confidence": min_confidence}
+        params = {"min_confidence": str(min_confidence)}
         try:
             async with session.get(url, headers=headers, params=params) as response:
                 if not response.ok:
@@ -368,12 +369,13 @@ def get_image(
         return None, None
 
     image_content = ContentFile(resp.content)
-    extension = imghdr.what(None, image_content.read())
-    if not extension:
+    try:
+        with Image.open(image_content) as im:
+            extension = str(im.format).lower()
+            return image_content, extension
+    except UnidentifiedImageError:
         logger.info("File requested was not an image: %s", url)
         return None, None
-
-    return image_content, extension
 
 
 class Mapping:
