@@ -1,12 +1,10 @@
 """ tests the base functionality for activitypub dataclasses """
-from io import BytesIO
 import json
 import pathlib
 from unittest.mock import patch
 
 from dataclasses import dataclass
 from django.test import TestCase
-from PIL import Image
 import responses
 
 from bookwyrm import activitypub
@@ -29,16 +27,18 @@ class BaseActivity(TestCase):
     """the super class for model-linked activitypub dataclasses"""
 
     @classmethod
-    def setUpTestData(self):  # pylint: disable=bad-classmethod-argument
+    def setUpTestData(cls):
         """we're probably going to re-use this so why copy/paste"""
-        with patch("bookwyrm.suggested_users.rerank_suggestions_task.delay"), patch(
-            "bookwyrm.activitystreams.populate_stream_task.delay"
-        ), patch("bookwyrm.lists_stream.populate_lists_task.delay"):
-            self.user = models.User.objects.create_user(
+        with (
+            patch("bookwyrm.suggested_users.rerank_suggestions_task.delay"),
+            patch("bookwyrm.activitystreams.populate_stream_task.delay"),
+            patch("bookwyrm.lists_stream.populate_lists_task.delay"),
+        ):
+            cls.user = models.User.objects.create_user(
                 "mouse", "mouse@mouse.mouse", "mouseword", local=True, localname="mouse"
             )
-        self.user.remote_id = "http://example.com/a/b"
-        self.user.save(broadcast=False, update_fields=["remote_id"])
+        cls.user.remote_id = "http://example.com/a/b"
+        cls.user.save(broadcast=False, update_fields=["remote_id"])
 
     def setUp(self):
         datafile = pathlib.Path(__file__).parent.joinpath("../data/ap_user.json")
@@ -46,13 +46,23 @@ class BaseActivity(TestCase):
         # don't try to load the user icon
         del self.userdata["icon"]
 
-        image_file = pathlib.Path(__file__).parent.joinpath(
+        remote_datafile = pathlib.Path(__file__).parent.joinpath(
+            "../data/ap_user_external.json"
+        )
+        self.remote_userdata = json.loads(remote_datafile.read_bytes())
+        del self.remote_userdata["icon"]
+
+        alias_datafile = pathlib.Path(__file__).parent.joinpath(
+            "../data/ap_user_aliased.json"
+        )
+        self.alias_userdata = json.loads(alias_datafile.read_bytes())
+        del self.alias_userdata["icon"]
+
+        image_path = pathlib.Path(__file__).parent.joinpath(
             "../../static/images/default_avi.jpg"
         )
-        image = Image.open(image_file)
-        output = BytesIO()
-        image.save(output, format=image.format)
-        self.image_data = output.getvalue()
+        with open(image_path, "rb") as image_file:
+            self.image_data = image_file.read()
 
     def test_get_representative_not_existing(self, *_):
         """test that an instance representative actor is created if it does not exist"""
@@ -119,6 +129,48 @@ class BaseActivity(TestCase):
         self.assertIsInstance(result, models.User)
         self.assertEqual(result.remote_id, "https://example.com/user/mouse")
         self.assertEqual(result.name, "MOUSE?? MOUSE!!")
+
+    @responses.activate
+    def test_resolve_remote_alias(self, *_):
+        """look up or load user who has an unknown alias"""
+
+        self.assertEqual(models.User.objects.count(), 1)
+
+        # remote user with unknown user as an alias
+        responses.add(
+            responses.GET,
+            "https://example.com/user/moose",
+            json=self.alias_userdata,
+            status=200,
+        )
+
+        responses.add(
+            responses.GET,
+            "https://example.com/user/ali",
+            json=self.remote_userdata,
+            status=200,
+        )
+
+        with patch("bookwyrm.models.user.set_remote_server.delay"):
+            result = resolve_remote_id(
+                "https://example.com/user/moose", model=models.User
+            )
+
+        self.assertTrue(
+            models.User.objects.filter(
+                remote_id="https://example.com/user/moose"
+            ).exists()
+        )  # moose has been added to DB
+        self.assertTrue(
+            models.User.objects.filter(
+                remote_id="https://example.com/user/ali"
+            ).exists()
+        )  # Ali has been added to DB
+        self.assertIsInstance(result, models.User)
+        self.assertEqual(result.name, "moose?? moose!!")
+        alias = models.User.objects.last()
+        self.assertEqual(alias.name, "Ali As")
+        self.assertEqual(result.also_known_as.first(), alias)  # Ali is alias of Moose
 
     def test_to_model_invalid_model(self, *_):
         """catch mismatch between activity type and model type"""
@@ -232,10 +284,12 @@ class BaseActivity(TestCase):
         )
 
         # sets the celery task call to the function call
-        with patch("bookwyrm.activitypub.base_activity.set_related_field.delay"):
-            with patch("bookwyrm.models.status.Status.ignore_activity") as discarder:
-                discarder.return_value = False
-                update_data.to_model(model=models.Status, instance=status)
+        with (
+            patch("bookwyrm.activitypub.base_activity.set_related_field.delay"),
+            patch("bookwyrm.models.status.Status.ignore_activity") as discarder,
+        ):
+            discarder.return_value = False
+            update_data.to_model(model=models.Status, instance=status)
         self.assertIsNone(status.attachments.first())
 
     @responses.activate

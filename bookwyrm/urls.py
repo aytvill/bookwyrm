@@ -2,7 +2,7 @@
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.staticfiles.urls import staticfiles_urlpatterns
-from django.urls import path, re_path
+from django.urls import path, re_path, include
 from django.views.generic.base import TemplateView
 
 from bookwyrm import settings, views
@@ -138,6 +138,36 @@ urlpatterns = [
         r"^settings/announcements/(?P<announcement_id>\d+)/delete/?$",
         views.delete_announcement,
         name="settings-announcements-delete",
+    ),
+    re_path(
+        r"^settings/connectors/?$",
+        views.ConnectorSettings.as_view(),
+        name="settings-connectors",
+    ),
+    re_path(
+        r"^settings/connectors/(?P<connector_id>\d+)/deactivate?$",
+        views.deactivate_connector,
+        name="settings-deactivate-connector",
+    ),
+    re_path(
+        r"^settings/connectors/(?P<connector_id>\d+)/activate?$",
+        views.activate_connector,
+        name="settings-activate-connector",
+    ),
+    re_path(
+        r"^settings/connectors/(?P<connector_id>\d+)/priority?$",
+        views.set_connector_priority,
+        name="settings-connector-priority",
+    ),
+    re_path(
+        r"^settings/connectors/create?$",
+        views.create_connector,
+        name="settings-create-connector",
+    ),
+    re_path(
+        r"^settings/connectors/(?P<connector_id>\d+)/update?$",
+        views.update_connector,
+        name="settings-update-connector",
     ),
     re_path(
         r"^settings/email-preview/?$",
@@ -329,9 +359,24 @@ urlpatterns = [
         name="settings-imports-complete",
     ),
     re_path(
+        r"^settings/user-imports/(?P<import_id>\d+)/complete/?$",
+        views.set_user_import_completed,
+        name="settings-user-import-complete",
+    ),
+    re_path(
         r"^settings/imports/disable/?$",
         views.disable_imports,
         name="settings-imports-disable",
+    ),
+    re_path(
+        r"^settings/user-exports/enable/?$",
+        views.enable_user_exports,
+        name="settings-user-exports-enable",
+    ),
+    re_path(
+        r"^settings/user-exports/disable/?$",
+        views.disable_user_exports,
+        name="settings-user-exports-disable",
     ),
     re_path(
         r"^settings/imports/enable/?$",
@@ -344,10 +389,20 @@ urlpatterns = [
         name="settings-imports-set-limit",
     ),
     re_path(
+        r"^settings/user-imports/set-limit/?$",
+        views.set_user_import_limit,
+        name="settings-user-imports-set-limit",
+    ),
+    re_path(
         r"^settings/celery/?$", views.CeleryStatus.as_view(), name="settings-celery"
     ),
     re_path(
         r"^settings/celery/ping/?$", views.celery_ping, name="settings-celery-ping"
+    ),
+    re_path(
+        r"^settings/schedules/(?P<task_id>\d+)?$",
+        views.ScheduledTasks.as_view(),
+        name="settings-schedules",
     ),
     re_path(
         r"^settings/email-config/?$",
@@ -408,6 +463,12 @@ urlpatterns = [
     re_path(r"^search/?$", views.Search.as_view(), name="search"),
     # imports
     re_path(r"^import/?$", views.Import.as_view(), name="import"),
+    re_path(r"^user-import/?$", views.UserImport.as_view(), name="user-import"),
+    re_path(
+        r"^user-import/(?P<job_id>\d+)/?$",
+        views.UserImportStatus.as_view(),
+        name="user-import-status",
+    ),
     re_path(
         r"^import/(?P<job_id>\d+)/?$",
         views.ImportStatus.as_view(),
@@ -419,6 +480,11 @@ urlpatterns = [
         name="import-stop",
     ),
     re_path(
+        r"^user-import/(?P<job_id>\d+)/stop/?$",
+        views.stop_user_import,
+        name="user-import-stop",
+    ),
+    re_path(
         r"^import/(?P<job_id>\d+)/retry/(?P<item_id>\d+)/?$",
         views.retry_item,
         name="import-item-retry",
@@ -427,6 +493,11 @@ urlpatterns = [
         r"^import/(?P<job_id>\d+)/failed/?$",
         views.ImportTroubleshoot.as_view(),
         name="import-troubleshoot",
+    ),
+    re_path(
+        r"^user-import/(?P<job_id>\d+)/failed/?$",
+        views.UserImportTroubleshoot.as_view(),
+        name="user-import-troubleshoot",
     ),
     re_path(
         r"^import/(?P<job_id>\d+)/review/?$",
@@ -552,9 +623,19 @@ urlpatterns = [
         name="shelf",
     ),
     re_path(
+        rf"^{USER_PATH}/(shelf|books)/(?P<shelf_identifier>[\w-]+)/rss/?$",
+        views.rss_feed.RssShelfFeed(),
+        name="shelf-rss",
+    ),
+    re_path(
         rf"^{LOCAL_USER_PATH}/(books|shelf)/(?P<shelf_identifier>[\w-]+)(.json)?/?$",
         views.Shelf.as_view(),
         name="shelf",
+    ),
+    re_path(
+        rf"^{LOCAL_USER_PATH}/(books|shelf)/(?P<shelf_identifier>[\w-]+)/rss/?$",
+        views.rss_feed.RssShelfFeed(),
+        name="shelf-rss",
     ),
     re_path(r"^create-shelf/?$", views.create_shelf, name="shelf-create"),
     re_path(r"^delete-shelf/(?P<shelf_id>\d+)/?$", views.delete_shelf),
@@ -605,6 +686,16 @@ urlpatterns = [
         name="prompt-2fa",
     ),
     re_path(r"^preferences/export/?$", views.Export.as_view(), name="prefs-export"),
+    re_path(
+        r"^preferences/user-export/?$",
+        views.ExportUser.as_view(),
+        name="prefs-user-export",
+    ),
+    path(
+        "preferences/user-export/<archive_id>",
+        views.ExportArchive.as_view(),
+        name="prefs-export-file",
+    ),
     re_path(r"^preferences/move/?$", views.MoveUser.as_view(), name="prefs-move"),
     re_path(r"^preferences/alias/?$", views.AliasUser.as_view(), name="prefs-alias"),
     re_path(
@@ -793,6 +884,7 @@ urlpatterns = [
         r"^summary_revoke_key/?$", views.summary_revoke_key, name="summary-revoke-key"
     ),
     path("guided-tour/<tour>", views.toggle_guided_tour),
+    re_path(r"^o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # Serves /static when DEBUG is true.
