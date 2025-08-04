@@ -61,7 +61,7 @@ def is_bookwyrm_request(request):
     return True
 
 
-def handle_remote_webfinger(query, unknown_only=False):
+def handle_remote_webfinger(query, unknown_only=False, refresh=False):
     """webfingerin' other servers"""
     user = None
 
@@ -76,6 +76,11 @@ def handle_remote_webfinger(query, unknown_only=False):
         return None
 
     try:
+
+        if refresh:
+            # Always fetch the remote info - don't even bother checking the DB
+            raise models.User.DoesNotExist("remote_only is set to True")
+
         user = models.User.objects.get(username__iexact=query)
 
         if unknown_only:
@@ -93,7 +98,7 @@ def handle_remote_webfinger(query, unknown_only=False):
             if link.get("rel") == "self":
                 try:
                     user = activitypub.resolve_remote_id(
-                        link["href"], model=models.User
+                        link["href"], model=models.User, refresh=refresh
                     )
                 except (KeyError, activitypub.ActivitySerializerError):
                     return None
@@ -151,8 +156,7 @@ def handle_reading_status(user, shelf, book, privacy):
         # it's a non-standard shelf, don't worry about it
         return
 
-    status = create_generated_note(user, message, mention_books=[book], privacy=privacy)
-    status.save()
+    create_generated_note(user, message, mention_books=[book], privacy=privacy)
 
 
 def load_date_in_user_tz_as_utc(date_str: str, user: models.User) -> datetime:
@@ -226,7 +230,7 @@ def maybe_redirect_local_path(request, model):
 def redirect_to_referer(request, *args, **kwargs):
     """Redirect to the referrer, if it's in our domain, with get params"""
     # make sure the refer is part of this instance
-    validated = validate_url_domain(request.META.get("HTTP_REFERER"))
+    validated = validate_url_domain(request.headers.get("referer", ""))
 
     if validated:
         return redirect(validated)
@@ -235,7 +239,7 @@ def redirect_to_referer(request, *args, **kwargs):
     return redirect(*args or "/", **kwargs)
 
 
-# pylint: disable=redefined-builtin,invalid-name
+# pylint: disable=redefined-builtin
 def get_mergeable_object_or_404(klass, id):
     """variant of get_object_or_404 that also redirects if id has been merged
     into another object"""
