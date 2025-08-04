@@ -1,5 +1,7 @@
 """ the good stuff! the books! """
+
 from re import sub, findall
+
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.postgres.search import SearchRank, SearchVector
 from django.db import transaction
@@ -11,6 +13,7 @@ from django.views.decorators.http import require_POST
 from django.views import View
 
 from bookwyrm import book_search, forms, models
+from bookwyrm.utils.images import remove_uploaded_image_exif
 
 # from bookwyrm.activitypub.base_activity import ActivityObject
 from bookwyrm.utils.isni import (
@@ -18,8 +21,9 @@ from bookwyrm.utils.isni import (
     build_author_from_isni,
     augment_author_metadata,
 )
-from bookwyrm.views.helpers import get_edition
+from bookwyrm.views.helpers import get_edition, get_mergeable_object_or_404
 from .books import set_cover_from_url
+
 
 # pylint: disable=no-self-use
 @method_decorator(login_required, name="dispatch")
@@ -42,7 +46,7 @@ class EditBook(View):
 
     def post(self, request, book_id):
         """edit a book cool"""
-        book = get_object_or_404(models.Edition, id=book_id)
+        book = get_mergeable_object_or_404(models.Edition, id=book_id)
 
         form = forms.EditionForm(request.POST, request.FILES, instance=book)
 
@@ -69,6 +73,8 @@ class EditBook(View):
             image = set_cover_from_url(url)
             if image:
                 book.cover.save(*image, save=False)
+        elif "cover" in form.files:
+            book.cover = remove_uploaded_image_exif(form.files["cover"])
 
         book.save()
         return redirect(f"/book/{book.id}")
@@ -86,7 +92,6 @@ class CreateBook(View):
         data = {"form": forms.EditionForm()}
         return TemplateResponse(request, "book/edit/edit_book.html", data)
 
-    # pylint: disable=too-many-locals
     def post(self, request):
         """create a new book"""
         # returns None if no match is found
@@ -130,7 +135,7 @@ class CreateBook(View):
 
         with transaction.atomic():
             book = form.save(request)
-            parent_work = get_object_or_404(models.Work, id=parent_work_id)
+            parent_work = get_mergeable_object_or_404(models.Work, id=parent_work_id)
             book.parent_work = parent_work
 
             if authors:
@@ -141,6 +146,8 @@ class CreateBook(View):
                 image = set_cover_from_url(url)
                 if image:
                     book.cover.save(*image, save=False)
+            elif "cover" in form.files:
+                book.cover = remove_uploaded_image_exif(form.files["cover"])
 
             book.save()
         return redirect(f"/book/{book.id}")
@@ -182,7 +189,7 @@ def add_authors(request, data):
 
         author_matches = (
             models.Author.objects.annotate(search=vector)
-            .annotate(rank=SearchRank(vector, author))
+            .annotate(rank=SearchRank(vector, author, normalization=32))
             .filter(rank__gt=0.4)
             .order_by("-rank")[:5]
         )
@@ -295,7 +302,7 @@ class ConfirmEditBook(View):
             if not book.parent_work:
                 work_match = request.POST.get("parent_work")
                 if work_match and work_match != "0":
-                    work = get_object_or_404(models.Work, id=work_match)
+                    work = get_mergeable_object_or_404(models.Work, id=work_match)
                 else:
                     work = models.Work.objects.create(title=form.cleaned_data["title"])
                     work.authors.set(book.authors.all())
@@ -310,6 +317,8 @@ class ConfirmEditBook(View):
                 image = set_cover_from_url(url)
                 if image:
                     book.cover.save(*image, save=False)
+            elif "cover" in form.files:
+                book.cover = remove_uploaded_image_exif(form.files["cover"])
 
             # we don't tell the world when creating a book
             book.save(broadcast=False)
