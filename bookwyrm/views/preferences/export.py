@@ -1,9 +1,12 @@
 """ Let users export their book data """
 from datetime import timedelta
 import csv
+import datetime
 import io
 
 from django.contrib.auth.decorators import login_required
+from django.db.models import Avg, ExpressionWrapper, F
+from django.db.models.fields import DurationField
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpResponse, HttpResponseServerError, Http404
@@ -14,12 +17,12 @@ from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.shortcuts import redirect
 
-from storages.backends.s3boto3 import S3Boto3Storage
+from storages.backends.s3 import S3Storage
 
-from bookwyrm import models, storage_backends
+from bookwyrm import models
 from bookwyrm.models.bookwyrm_export_job import BookwyrmExportJob
 from bookwyrm import settings
-
+from bookwyrm.utils.cache import get_or_set
 
 # pylint: disable=no-self-use,too-many-locals
 @method_decorator(login_required, name="dispatch")
@@ -203,6 +206,14 @@ class ExportUser(View):
             ),
         }
 
+        seconds = get_or_set(
+            "avg-user-export-time", get_average_export_time, timeout=86400
+        )
+        if seconds and seconds > 60**2:
+            data["recent_avg_hours"] = seconds / (60**2)
+        elif seconds:
+            data["recent_avg_minutes"] = seconds / 60
+
         return TemplateResponse(request, "preferences/export-user.html", data)
 
     def post(self, request):
@@ -220,17 +231,16 @@ class ExportUser(View):
 class ExportArchive(View):
     """Serve the archive file"""
 
-    # TODO: how do we serve s3 files?
     def get(self, request, archive_id):
         """download user export file"""
         export = BookwyrmExportJob.objects.get(task_id=archive_id, user=request.user)
 
-        if isinstance(export.export_data.storage, storage_backends.ExportsS3Storage):
+        if settings.USE_S3:
             # make custom_domain None so we can sign the url
             # see https://github.com/jschneier/django-storages/issues/944
-            storage = S3Boto3Storage(querystring_auth=True, custom_domain=None)
+            storage = S3Storage(querystring_auth=True, custom_domain=None)
             try:
-                url = S3Boto3Storage.url(
+                url = S3Storage.url(
                     storage,
                     f"/exports/{export.task_id}.tar.gz",
                     expire=settings.S3_SIGNED_URL_EXPIRY,
@@ -239,16 +249,41 @@ class ExportArchive(View):
                 raise Http404()
             return redirect(url)
 
-        if isinstance(export.export_data.storage, storage_backends.ExportsFileStorage):
-            try:
-                return HttpResponse(
-                    export.export_data,
-                    content_type="application/gzip",
-                    headers={
-                        "Content-Disposition": 'attachment; filename="bookwyrm-account-export.tar.gz"'  # pylint: disable=line-too-long
-                    },
-                )
-            except FileNotFoundError:
-                raise Http404()
+        if settings.USE_AZURE:
+            # not implemented
+            return HttpResponseServerError()
 
-        return HttpResponseServerError()
+        try:
+            return HttpResponse(
+                export.export_data,
+                content_type="application/gzip",
+                headers={
+                    # pylint: disable=line-too-long
+                    "Content-Disposition": 'attachment; filename="bookwyrm-account-export.tar.gz"'
+                },
+            )
+        except FileNotFoundError:
+            raise Http404()
+
+
+def get_average_export_time() -> float:
+    """Helper to figure out how long exports are taking (returns seconds)"""
+    last_week = timezone.now() - datetime.timedelta(days=7)
+    recent_avg = (
+        models.BookwyrmExportJob.objects.filter(
+            created_date__gte=last_week, complete=True
+        )
+        .exclude(status="stopped")
+        .annotate(
+            runtime=ExpressionWrapper(
+                F("updated_date") - F("created_date"),
+                output_field=DurationField(),
+            )
+        )
+        .aggregate(Avg("runtime"))
+        .get("runtime__avg")
+    )
+
+    if recent_avg:
+        return recent_avg.total_seconds()
+    return None
