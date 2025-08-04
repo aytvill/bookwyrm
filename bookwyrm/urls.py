@@ -2,7 +2,7 @@
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.staticfiles.urls import staticfiles_urlpatterns
-from django.urls import path, re_path
+from django.urls import path, re_path, include
 from django.views.generic.base import TemplateView
 
 from bookwyrm import settings, views
@@ -138,6 +138,36 @@ urlpatterns = [
         r"^settings/announcements/(?P<announcement_id>\d+)/delete/?$",
         views.delete_announcement,
         name="settings-announcements-delete",
+    ),
+    re_path(
+        r"^settings/connectors/?$",
+        views.ConnectorSettings.as_view(),
+        name="settings-connectors",
+    ),
+    re_path(
+        r"^settings/connectors/(?P<connector_id>\d+)/deactivate?$",
+        views.deactivate_connector,
+        name="settings-deactivate-connector",
+    ),
+    re_path(
+        r"^settings/connectors/(?P<connector_id>\d+)/activate?$",
+        views.activate_connector,
+        name="settings-activate-connector",
+    ),
+    re_path(
+        r"^settings/connectors/(?P<connector_id>\d+)/priority?$",
+        views.set_connector_priority,
+        name="settings-connector-priority",
+    ),
+    re_path(
+        r"^settings/connectors/create?$",
+        views.create_connector,
+        name="settings-create-connector",
+    ),
+    re_path(
+        r"^settings/connectors/(?P<connector_id>\d+)/update?$",
+        views.update_connector,
+        name="settings-update-connector",
     ),
     re_path(
         r"^settings/email-preview/?$",
@@ -370,6 +400,11 @@ urlpatterns = [
         r"^settings/celery/ping/?$", views.celery_ping, name="settings-celery-ping"
     ),
     re_path(
+        r"^settings/schedules/(?P<task_id>\d+)?$",
+        views.ScheduledTasks.as_view(),
+        name="settings-schedules",
+    ),
+    re_path(
         r"^settings/email-config/?$",
         views.EmailConfig.as_view(),
         name="settings-email-config",
@@ -430,6 +465,11 @@ urlpatterns = [
     re_path(r"^import/?$", views.Import.as_view(), name="import"),
     re_path(r"^user-import/?$", views.UserImport.as_view(), name="user-import"),
     re_path(
+        r"^user-import/(?P<job_id>\d+)/?$",
+        views.UserImportStatus.as_view(),
+        name="user-import-status",
+    ),
+    re_path(
         r"^import/(?P<job_id>\d+)/?$",
         views.ImportStatus.as_view(),
         name="import-status",
@@ -440,6 +480,11 @@ urlpatterns = [
         name="import-stop",
     ),
     re_path(
+        r"^user-import/(?P<job_id>\d+)/stop/?$",
+        views.stop_user_import,
+        name="user-import-stop",
+    ),
+    re_path(
         r"^import/(?P<job_id>\d+)/retry/(?P<item_id>\d+)/?$",
         views.retry_item,
         name="import-item-retry",
@@ -448,6 +493,11 @@ urlpatterns = [
         r"^import/(?P<job_id>\d+)/failed/?$",
         views.ImportTroubleshoot.as_view(),
         name="import-troubleshoot",
+    ),
+    re_path(
+        r"^user-import/(?P<job_id>\d+)/failed/?$",
+        views.UserImportTroubleshoot.as_view(),
+        name="user-import-troubleshoot",
     ),
     re_path(
         r"^import/(?P<job_id>\d+)/review/?$",
@@ -573,9 +623,19 @@ urlpatterns = [
         name="shelf",
     ),
     re_path(
+        rf"^{USER_PATH}/(shelf|books)/(?P<shelf_identifier>[\w-]+)/rss/?$",
+        views.rss_feed.RssShelfFeed(),
+        name="shelf-rss",
+    ),
+    re_path(
         rf"^{LOCAL_USER_PATH}/(books|shelf)/(?P<shelf_identifier>[\w-]+)(.json)?/?$",
         views.Shelf.as_view(),
         name="shelf",
+    ),
+    re_path(
+        rf"^{LOCAL_USER_PATH}/(books|shelf)/(?P<shelf_identifier>[\w-]+)/rss/?$",
+        views.rss_feed.RssShelfFeed(),
+        name="shelf-rss",
     ),
     re_path(r"^create-shelf/?$", views.create_shelf, name="shelf-create"),
     re_path(r"^delete-shelf/(?P<shelf_id>\d+)/?$", views.delete_shelf),
@@ -824,6 +884,7 @@ urlpatterns = [
         r"^summary_revoke_key/?$", views.summary_revoke_key, name="summary-revoke-key"
     ),
     path("guided-tour/<tour>", views.toggle_guided_tour),
+    re_path(r"^o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # Serves /static when DEBUG is true.
