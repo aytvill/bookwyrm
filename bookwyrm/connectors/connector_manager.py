@@ -118,9 +118,11 @@ def get_connectors() -> Iterator[abstract_connector.AbstractConnector]:
 def get_or_create_connector(remote_id: str) -> abstract_connector.AbstractConnector:
     """get the connector related to the object's server"""
     url = urlparse(remote_id)
-    identifier = url.netloc
+    identifier = url.hostname
     if not identifier:
-        raise ValueError("Invalid remote id")
+        raise ValueError(f"Invalid remote id: {remote_id}")
+
+    base_url = f"{url.scheme}://{url.netloc}"
 
     try:
         connector_info = models.Connector.objects.get(identifier=identifier)
@@ -128,10 +130,10 @@ def get_or_create_connector(remote_id: str) -> abstract_connector.AbstractConnec
         connector_info = models.Connector.objects.create(
             identifier=identifier,
             connector_file="bookwyrm_connector",
-            base_url=f"https://{identifier}",
-            books_url=f"https://{identifier}/book",
-            covers_url=f"https://{identifier}/images/covers",
-            search_url=f"https://{identifier}/search?q=",
+            base_url=base_url,
+            books_url=f"{base_url}/book",
+            covers_url=f"{base_url}/images/covers",
+            search_url=f"{base_url}/search?q=",
             priority=2,
         )
 
@@ -143,7 +145,9 @@ def load_more_data(connector_id: str, book_id: str) -> None:
     """background the work of getting all 10,000 editions of LoTR"""
     connector_info = models.Connector.objects.get(id=connector_id)
     connector = load_connector(connector_info)
-    book = models.Book.objects.select_subclasses().get(id=book_id)
+    book = models.Book.objects.select_subclasses().get(  # type: ignore[no-untyped-call]
+        id=book_id
+    )
     connector.expand_book_data(book)
 
 
@@ -154,7 +158,9 @@ def create_edition_task(
     """separate task for each of the 10,000 editions of LoTR"""
     connector_info = models.Connector.objects.get(id=connector_id)
     connector = load_connector(connector_info)
-    work = models.Work.objects.select_subclasses().get(id=work_id)
+    work = models.Work.objects.select_subclasses().get(  # type: ignore[no-untyped-call]
+        id=work_id
+    )
     connector.create_edition_from_data(work, data)
 
 
@@ -188,8 +194,11 @@ def raise_not_valid_url(url: str) -> None:
     if not parsed.scheme in ["http", "https"]:
         raise ConnectorException("Invalid scheme: ", url)
 
+    if not parsed.hostname:
+        raise ConnectorException("Hostname missing: ", url)
+
     try:
-        ipaddress.ip_address(parsed.netloc)
+        ipaddress.ip_address(parsed.hostname)
         raise ConnectorException("Provided url is an IP address: ", url)
     except ValueError:
         # it's not an IP address, which is good
@@ -197,3 +206,26 @@ def raise_not_valid_url(url: str) -> None:
 
     if models.FederatedServer.is_blocked(url):
         raise ConnectorException(f"Attempting to load data from blocked url: {url}")
+
+
+def create_finna_connector() -> None:
+    """create a Finna connector"""
+
+    models.Connector.objects.create(
+        identifier="api.finna.fi",
+        name="Finna API",
+        connector_file="finna",
+        base_url="https://www.finna.fi",
+        books_url="https://api.finna.fi/api/v1/record" "?id=",
+        covers_url="https://api.finna.fi",
+        search_url="https://api.finna.fi/api/v1/search?limit=20"
+        "&filter[]=format%3a%220%2fBook%2f%22"
+        "&field[]=title&field[]=recordPage&field[]=authors"
+        "&field[]=year&field[]=id&field[]=formats&field[]=images"
+        "&lookfor=",
+        isbn_search_url="https://api.finna.fi/api/v1/search?limit=1"
+        "&filter[]=format%3a%220%2fBook%2f%22"
+        "&field[]=title&field[]=recordPage&field[]=authors&field[]=year"
+        "&field[]=id&field[]=formats&field[]=images"
+        "&lookfor=isbn:",
+    )
