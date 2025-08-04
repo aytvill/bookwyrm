@@ -29,6 +29,7 @@ class Job(models.Model):
     status = models.CharField(
         max_length=50, choices=Status.choices, default=Status.PENDING, null=True
     )
+    fail_reason = models.TextField(null=True)
 
     class Meta:
         """Make it abstract"""
@@ -133,10 +134,10 @@ class ParentJob(Job):
         tasks = self.pending_child_jobs.filter(task_id__isnull=False).values_list(
             "task_id", flat=True
         )
-        app.control.revoke(list(tasks))
+        tasklist = [str(task) for task in list(tasks)]
+        app.control.revoke(tasklist)
 
-        for task in self.pending_child_jobs:
-            task.update(status=self.Status.STOPPED)
+        self.pending_child_jobs.update(status=self.Status.STOPPED)
 
     @property
     def has_completed(self):
@@ -209,7 +210,7 @@ class ParentTask(app.Task):
         job.task_id = task_id
         job.save(update_fields=["task_id"])
 
-        if kwargs["no_children"]:
+        if kwargs.get("no_children"):
             job.set_status(ChildJob.Status.ACTIVE)
 
     def on_success(
@@ -234,7 +235,7 @@ class ParentTask(app.Task):
             None: The return value of this handler is ignored.
         """
 
-        if kwargs["no_children"]:
+        if kwargs.get("no_children"):
             job = ParentJob.objects.get(id=kwargs["job_id"])
             job.complete_job()
 
